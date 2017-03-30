@@ -1,17 +1,33 @@
+# -*- coding: utf-8 -*-
 """
-Basic views for voting
-"""
-from __future__ import unicode_literals
+updown.views
+~~~~~~~~~~~~
 
+Basic views for voting
+
+:copyright: 2011, weluse (http://weluse.de)
+:author: 2011, Daniel Banck <dbanck@weluse.de>
+:license: BSD, see LICENSE for more details.
+"""
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ObjectDoesNotExist
-from django.http import HttpResponse, Http404
+from django.http import Http404
 
-from updown.exceptions import InvalidRating, AuthRequired, CannotChangeVote
+from updown.exceptions import *
+
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+
+from rest_framework_jwt.authentication import JSONWebTokenAuthentication
 
 
 class AddRatingView(object):
-    def __call__(self, request, content_type_id, object_id, field_name, score):
+
+    permission_classes = (IsAuthenticated, )
+    authentication_classes = (JSONWebTokenAuthentication, )
+
+    def __call__(self, request, content_type_id, object_id, field_name, score, user):
         """__call__(request, content_type_id, object_id, field_name, score)
 
         Adds a vote to the specified model field."""
@@ -35,11 +51,10 @@ class AddRatingView(object):
         })
 
         try:
-            had_voted = bool(field.get_rating_for_user(
-                request.user, request.META['REMOTE_ADDR']))
-
+            had_voted = bool(field.get_rating_for_user(request.user,
+                                                       request.META['REMOTE_ADDR']))
             context['had_voted'] = had_voted
-            field.add(score, request.user, request.META['REMOTE_ADDR'])
+            field.add(score, user, request.META['REMOTE_ADDR'])
         except AuthRequired:
             return self.authentication_required_response(request, context)
         except InvalidRating:
@@ -57,32 +72,39 @@ class AddRatingView(object):
         raise NotImplementedError
 
     def rating_changed_response(self, request, context):
-        response = HttpResponse('Vote changed.')
-        return response
+
+        return Response({"response": "Vote changed"}, status=status.HTTP_200_OK)
+        # response = HttpResponse('Vote changed.')
+        # return Response
 
     def rating_added_response(self, request, context):
-        response = HttpResponse('Vote recorded.')
-        return response
+        return Response({"response": "Vote recorded."}, status=status.HTTP_201_CREATED)
+        # response = HttpResponse('Vote recorded.')
+        # return Response
 
     def authentication_required_response(self, request, context):
-        response = HttpResponse('You must be logged in to vote.')
-        response.status_code = 403
-        return response
+        return Response({"response": "You must be logged in to vote."}, status=status.HTTP_403_FORBIDDEN)
+        # response = HttpResponse('You must be logged in to vote.')
+        # response.status_code = 403
+        # return Response
 
     def cannot_change_vote_response(self, request, context):
-        response = HttpResponse('You have already voted.')
-        response.status_code = 403
-        return response
+        return Response({"response": "You have already voted."}, status=status.HTTP_200_OK)
+        # response = HttpResponse('You have already voted.')
+        # response.status_code = 403
+        # return Response
 
     def invalid_field_response(self, request, context):
-        response = HttpResponse('Invalid field name.')
-        response.status_code = 403
-        return response
+        return Response({"response": "Invalid field name."}, status=status.HTTP_403_FORBIDDEN)
+        # response = HttpResponse('Invalid field name.')
+        # response.status_code = 403
+        # return Response
 
     def invalid_rating_response(self, request, context):
-        response = HttpResponse('Invalid rating value.')
-        response.status_code = 403
-        return response
+        return Response({"response": "Invalid rating value."}, status=status.HTTP_409_CONFLICT)
+        # response = HttpResponse('Invalid rating value.')
+        # response.status_code = 403
+        # return Response
 
     def get_instance(self, content_type_id, object_id):
         return ContentType.objects.get(pk=content_type_id)\
@@ -90,16 +112,16 @@ class AddRatingView(object):
 
 
 class AddRatingFromModel(AddRatingView):
-    def __call__(self, request, model, app_label, object_id, field_name,
-                 score, **kwargs):
+    def __call__(self, request, model, app_label, object_id, field_name, score, user, **kwargs):
         """__call__(request, model, app_label, object_id, field_name, score)
 
         Adds a vote to the specified model field."""
+
         try:
-            content_type = ContentType.objects.get(model=model.lower(),
-                                                   app_label=app_label)
+            content_type = ContentType.objects.get(model=model.lower(), app_label=app_label)
         except ContentType.DoesNotExist:
+
             raise Http404('Invalid `model` or `app_label`.')
 
-        return super(AddRatingFromModel, self).__call__(
-            request, content_type.id, object_id, field_name, score)
+        return super(AddRatingFromModel, self).__call__(request, content_type.id,
+                                                        object_id, field_name, score, user)
